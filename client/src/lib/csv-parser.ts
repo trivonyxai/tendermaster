@@ -1,25 +1,57 @@
+import Papa from 'papaparse';
+
 export interface CSVRow {
   [key: string]: string;
 }
 
 export function parseCSV(csvText: string): CSVRow[] {
-  const lines = csvText.split('\n');
-  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+  // First, parse raw rows without headers to find where the actual header starts.
+  const rawParsed = Papa.parse<string[]>(csvText, {
+    header: false,
+    skipEmptyLines: 'greedy',
+  });
   
+  const rawRows = rawParsed.data;
+  if (rawRows.length === 0) return [];
+  
+  // Let's identify the header row.
+  // We'll search for the first row that contains key identifying column names.
+  const serviceHeaders = ['name of service', 'segment'];
+  const pricingHeaders = ['line item unique code', 'well classification'];
+  
+  let headerRowIndex = 0;
+  for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
+    const row = rawRows[i].map(cell => cell.toLowerCase().trim());
+    
+    // Check if this row looks like a header row
+    const isServiceHeader = serviceHeaders.every(h => row.some(cell => cell.includes(h)));
+    const isPricingHeader = pricingHeaders.every(h => row.some(cell => cell.includes(h)));
+    
+    if (isServiceHeader || isPricingHeader) {
+      headerRowIndex = i;
+      break;
+    }
+  }
+  
+  // Re-join the CSV starting from the detected header row index
+  const validLines = rawRows.slice(headerRowIndex);
+  if (validLines.length === 0) return [];
+  
+  const headers = validLines[0].map(h => h.trim());
   const rows: CSVRow[] = [];
   
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
+  for (let i = 1; i < validLines.length; i++) {
+    const row = validLines[i];
+    // Skip row if it doesn't have any non-empty cells
+    if (row.every(cell => !cell.trim())) continue;
     
-    const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
-    const row: CSVRow = {};
-    
+    const rowObject: CSVRow = {};
     headers.forEach((header, index) => {
-      row[header] = values[index] || '';
+      if (header) {
+        rowObject[header] = (row[index] || '').trim();
+      }
     });
-    
-    rows.push(row);
+    rows.push(rowObject);
   }
   
   return rows;
@@ -32,8 +64,8 @@ export function validateServiceCSV(rows: CSVRow[]): boolean {
   const firstRow = rows[0];
   
   return requiredColumns.every(col => 
-    col in firstRow || 
-    col.toLowerCase() in firstRow || 
-    col.replace(/\s+/g, '').toLowerCase() in firstRow
+    Object.keys(firstRow).some(key => 
+      key.toLowerCase().trim() === col.toLowerCase().trim()
+    )
   );
 }

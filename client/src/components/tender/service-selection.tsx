@@ -4,16 +4,32 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Search, ChevronDown, ChevronRight } from "lucide-react";
-import type { Service } from "@shared/schema";
+import { Search, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
+import type { Service, PricingSchedule, WellTime } from "@shared/schema";
 
 interface ServiceSelectionProps {
   services: Service[];
-  selectedServices: Array<{service: Service; quantity: number; unitPrice: number; totalPrice: number}>;
+  selectedServices: Array<{
+    service: Service;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+    isUnpriced?: boolean;
+  }>;
   onServiceToggle: (service: Service, isSelected: boolean) => void;
+  wellType: string;
+  pricingSchedules: PricingSchedule[];
+  wellTimes: WellTime[];
 }
 
-export default function ServiceSelection({ services, selectedServices, onServiceToggle }: ServiceSelectionProps) {
+export default function ServiceSelection({ 
+  services, 
+  selectedServices, 
+  onServiceToggle,
+  wellType,
+  pricingSchedules,
+  wellTimes
+}: ServiceSelectionProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedSegments, setExpandedSegments] = useState<Set<string>>(new Set());
 
@@ -50,6 +66,19 @@ export default function ServiceSelection({ services, selectedServices, onService
     if (segment.includes("DM")) return "📡";
     if (segment.includes("PMG")) return "📊";
     return "🔧";
+  };
+
+  const checkUnpriced = (serviceId: number) => {
+    const pricing = pricingSchedules.find(ps => ps.serviceId === serviceId && ps.wellType === wellType);
+    return !pricing || parseFloat(pricing.unitPrice ?? "0") === 0;
+  };
+
+  const getRateDisplay = (service: Service) => {
+    const pricing = pricingSchedules.find(ps => ps.serviceId === service.id && ps.wellType === wellType);
+    if (pricing && parseFloat(pricing.unitPrice ?? "0") > 0) {
+      return `$${parseFloat(pricing.unitPrice ?? "0").toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+    }
+    return `$${parseFloat(service.baseRate ?? "0").toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
   };
 
   return (
@@ -94,38 +123,48 @@ export default function ServiceSelection({ services, selectedServices, onService
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <div className="ml-4 mt-2 space-y-2">
-                  {segmentServices.map((service) => (
-                    <div
-                      key={service.id}
-                      className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
-                    >
-                      <div className="flex items-center space-x-3">
-                        <Checkbox
-                          checked={isServiceSelected(service.id)}
-                          onCheckedChange={(checked) => onServiceToggle(service, checked as boolean)}
-                        />
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">{service.name}</p>
-                          <div className="flex items-center space-x-2 mt-1">
-                            <Badge variant="secondary" className="text-xs">
-                              {service.pricingType}
-                            </Badge>
-                            {service.isActive && (
-                              <Badge variant="outline" className="text-xs text-industry-success">
-                                Active
+                  {segmentServices.map((service) => {
+                    const isUnpriced = checkUnpriced(service.id);
+                    return (
+                      <div
+                        key={service.id}
+                        className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <Checkbox
+                            checked={isServiceSelected(service.id)}
+                            onCheckedChange={(checked) => onServiceToggle(service, checked as boolean)}
+                          />
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{service.name}</p>
+                            <div className="flex items-center space-x-2 mt-1">
+                              <Badge variant="secondary" className="text-xs">
+                                {service.pricingType}
                               </Badge>
-                            )}
+                              {isUnpriced ? (
+                                <Badge variant="outline" className="text-xs text-industry-error bg-red-50 border-red-200 flex items-center gap-1">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  Unpriced
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-xs text-industry-success">
+                                  Active Rate
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </div>
+                        <div className="text-right">
+                          <span className="text-sm font-medium text-gray-900">
+                            {getRateDisplay(service)}
+                          </span>
+                          <p className="text-xs text-gray-500">
+                            {service.pricingType.toLowerCase()}
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-sm font-medium text-gray-900">
-                          ${service.baseRate}
-                        </span>
-                        <p className="text-xs text-gray-500">{service.pricingType.toLowerCase()}</p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </CollapsibleContent>
             </Collapsible>

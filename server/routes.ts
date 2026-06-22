@@ -1,7 +1,13 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertServiceSchema, insertTenderSchema, insertTenderServiceSchema } from "@shared/schema";
+import { 
+  insertServiceSchema, 
+  insertTenderSchema, 
+  insertTenderServiceSchema,
+  insertPricingScheduleSchema,
+  insertWellTimeSchema
+} from "@shared/schema";
 import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -212,6 +218,158 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid service data", details: error.errors });
       }
       res.status(500).json({ error: "Failed to import services" });
+    }
+  });
+
+  // Pricing Schedules endpoints
+  app.get("/api/pricing-schedules", async (req, res) => {
+    try {
+      const schedules = await storage.getPricingSchedules();
+      res.json(schedules);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch pricing schedules" });
+    }
+  });
+
+  app.post("/api/pricing-schedules", async (req, res) => {
+    try {
+      const scheduleData = insertPricingScheduleSchema.parse(req.body);
+      const schedule = await storage.createPricingSchedule(scheduleData);
+      res.status(201).json(schedule);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid pricing schedule data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create pricing schedule" });
+    }
+  });
+
+  app.put("/api/pricing-schedules/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const scheduleData = insertPricingScheduleSchema.partial().parse(req.body);
+      const schedule = await storage.updatePricingSchedule(id, scheduleData);
+      if (!schedule) {
+        return res.status(404).json({ error: "Pricing schedule not found" });
+      }
+      res.json(schedule);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid pricing schedule data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update pricing schedule" });
+    }
+  });
+
+  app.delete("/api/pricing-schedules/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deleted = await storage.deletePricingSchedule(id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Pricing schedule not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete pricing schedule" });
+    }
+  });
+
+  // Well Times endpoints
+  app.get("/api/well-times", async (req, res) => {
+    try {
+      const times = await storage.getWellTimes();
+      res.json(times);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch well times" });
+    }
+  });
+
+  app.post("/api/well-times", async (req, res) => {
+    try {
+      const timeData = insertWellTimeSchema.parse(req.body);
+      const time = await storage.createWellTime(timeData);
+      res.status(201).json(time);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid well time data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create well time" });
+    }
+  });
+
+  app.put("/api/well-times/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const timeData = insertWellTimeSchema.partial().parse(req.body);
+      const time = await storage.updateWellTime(id, timeData);
+      if (!time) {
+        return res.status(404).json({ error: "Well time not found" });
+      }
+      res.json(time);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid well time data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update well time" });
+    }
+  });
+
+  app.delete("/api/well-times/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deleted = await storage.deleteWellTime(id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Well time not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete well time" });
+    }
+  });
+
+  // Bulk Import Pricing Schedules endpoint
+  app.post("/api/import/pricing-schedules", async (req, res) => {
+    try {
+      const { schedules } = req.body;
+      if (!Array.isArray(schedules)) {
+        return res.status(400).json({ error: "Schedules must be an array" });
+      }
+      
+      const validSchedules = schedules.map(s => insertPricingScheduleSchema.parse(s));
+      const createdSchedules = await storage.bulkCreatePricingSchedules(validSchedules);
+      res.status(201).json({ 
+        success: true, 
+        count: createdSchedules.length,
+        schedules: createdSchedules 
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid pricing schedule data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to import pricing schedules" });
+    }
+  });
+
+  // Bulk Import Well Times endpoint
+  app.post("/api/import/well-times", async (req, res) => {
+    try {
+      const { wellTimes } = req.body;
+      if (!Array.isArray(wellTimes)) {
+        return res.status(400).json({ error: "Well times must be an array" });
+      }
+      
+      const validWellTimes = wellTimes.map(w => insertWellTimeSchema.parse(w));
+      const createdWellTimes = await storage.bulkCreateWellTimes(validWellTimes);
+      res.status(201).json({ 
+        success: true, 
+        count: createdWellTimes.length,
+        wellTimes: createdWellTimes 
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid well time data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to import well times" });
     }
   });
 

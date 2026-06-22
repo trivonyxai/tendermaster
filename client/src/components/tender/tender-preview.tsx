@@ -1,3 +1,7 @@
+import { PDFDownloadLink } from "@react-pdf/renderer";
+import PDFTenderDocument from "./pdf-tender-document";
+import { Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { Service } from "@shared/schema";
 
 interface SelectedService {
@@ -18,6 +22,7 @@ interface ProjectConfig {
   currency: string;
   taxRate: number;
   contingencyRate: number;
+  wellType: string;
 }
 
 interface TenderPreviewProps {
@@ -55,8 +60,29 @@ export default function TenderPreview({ projectConfig, selectedServices, totals 
   });
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-8 max-w-4xl mx-auto">
-      <div className="text-center mb-8">
+    <div className="space-y-4 max-w-4xl mx-auto">
+      <div className="flex justify-end">
+        <PDFDownloadLink
+          document={
+            <PDFTenderDocument
+              projectConfig={projectConfig}
+              selectedServices={selectedServices}
+              totals={totals}
+            />
+          }
+          fileName={`${projectConfig.projectName || "Tender"}_Proposal.pdf`}
+        >
+          {({ loading }) => (
+            <Button className="industry-primary" disabled={loading}>
+              <Download className="h-4 w-4 mr-2" />
+              {loading ? "Generating PDF..." : "Download Proposal PDF"}
+            </Button>
+          )}
+        </PDFDownloadLink>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-8">
+        <div className="text-center mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">TENDER DOCUMENT</h1>
         <p className="text-gray-600">Project Reference: T-{new Date().getFullYear()}-{String(Math.floor(Math.random() * 1000)).padStart(3, '0')}</p>
         <p className="text-gray-600">Date: {currentDate}</p>
@@ -142,5 +168,7 @@ export default function TenderPreview({ projectConfig, selectedServices, totals 
         <p>Terms and conditions apply. Please contact us for any clarifications.</p>
       </div>
     </div>
-  );
+  </div>
+);
 }
+

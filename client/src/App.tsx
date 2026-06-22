@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Dashboard from "@/pages/dashboard";
 import GenerateTender from "@/pages/generate-tender";
 import ServiceMaster from "@/pages/service-master";
+import PricingSchedulePage from "@/pages/pricing-schedule";
+import WellTimesPage from "@/pages/well-times";
 import DataImport from "@/pages/data-import";
 import NotFound from "@/pages/not-found";
 import Header from "@/components/layout/header";
@@ -22,6 +24,8 @@ function Router() {
             <Route path="/" component={Dashboard} />
             <Route path="/generate-tender" component={GenerateTender} />
             <Route path="/service-master" component={ServiceMaster} />
+            <Route path="/pricing" component={PricingSchedulePage} />
+            <Route path="/well-times" component={WellTimesPage} />
             <Route path="/data-import" component={DataImport} />
             <Route component={NotFound} />
           </Switch>

@@ -5,19 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import ServiceSelection from "@/components/tender/service-selection";
 import PricingSummary from "@/components/tender/pricing-summary";
 import TenderPreview from "@/components/tender/tender-preview";
 import { Save, Eye, FileText } from "lucide-react";
-import type { Service } from "@shared/schema";
+import type { Service, PricingSchedule, WellTime } from "@shared/schema";
 
 interface SelectedService {
   service: Service;
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  isUnpriced?: boolean;
 }
 
 interface ProjectConfig {
@@ -31,6 +31,7 @@ interface ProjectConfig {
   currency: string;
   taxRate: number;
   contingencyRate: number;
+  wellType: string;
 }
 
 export default function GenerateTender() {
@@ -46,20 +47,47 @@ export default function GenerateTender() {
     currency: "USD",
     taxRate: 8.5,
     contingencyRate: 10,
+    wellType: "MISHRIF VERTICAL",
   });
   const [showPreview, setShowPreview] = useState(false);
 
-  const { data: services, isLoading } = useQuery<Service[]>({
+  const { data: services = [], isLoading: servicesLoading } = useQuery<Service[]>({
     queryKey: ["/api/services"],
+  });
+
+  const { data: pricingSchedules = [], isLoading: pricingLoading } = useQuery<PricingSchedule[]>({
+    queryKey: ["/api/pricing-schedules"],
+  });
+
+  const { data: wellTimes = [], isLoading: wellTimesLoading } = useQuery<WellTime[]>({
+    queryKey: ["/api/well-times"],
   });
 
   const handleServiceToggle = (service: Service, isSelected: boolean) => {
     if (isSelected) {
+      const pricing = pricingSchedules.find(ps => ps.serviceId === service.id && ps.wellType === projectConfig.wellType);
+      const wellTime = wellTimes.find(wt => wt.serviceId === service.id);
+      
+      const isUnpriced = !pricing || parseFloat(pricing.unitPrice ?? "0") === 0;
+      const unitPrice = pricing ? parseFloat(pricing.unitPrice ?? "0") : parseFloat(service.baseRate ?? "0");
+      
+      let quantity = 1;
+      if (service.pricingType === "Per Day") {
+        if (wellTime && wellTime.estimatedTime) {
+          quantity = parseFloat((wellTime.estimatedTime / 24).toFixed(2));
+        } else {
+          quantity = projectConfig.duration;
+        }
+      } else if (pricing && pricing.duration && pricing.duration > 0) {
+        quantity = pricing.duration;
+      }
+
       const newSelectedService: SelectedService = {
         service,
-        quantity: service.pricingType === "Per Day" ? projectConfig.duration : 1,
-        unitPrice: parseFloat(service.baseRate || "0"),
-        totalPrice: parseFloat(service.baseRate || "0") * (service.pricingType === "Per Day" ? projectConfig.duration : 1),
+        quantity,
+        unitPrice,
+        totalPrice: unitPrice * quantity,
+        isUnpriced,
       };
       setSelectedServices([...selectedServices, newSelectedService]);
     } else {
@@ -71,6 +99,14 @@ export default function GenerateTender() {
     setSelectedServices(selectedServices.map(s => 
       s.service.id === serviceId 
         ? { ...s, quantity, totalPrice: s.unitPrice * quantity }
+        : s
+    ));
+  };
+
+  const handleUnitPriceChange = (serviceId: number, unitPrice: number) => {
+    setSelectedServices(selectedServices.map(s => 
+      s.service.id === serviceId 
+        ? { ...s, unitPrice, totalPrice: unitPrice * s.quantity }
         : s
     ));
   };
@@ -87,6 +123,8 @@ export default function GenerateTender() {
     
     return { subtotal, tax, contingency, total };
   };
+
+  const isLoading = servicesLoading || pricingLoading || wellTimesLoading;
 
   if (isLoading) {
     return (
@@ -191,12 +229,59 @@ export default function GenerateTender() {
               />
             </div>
             <div>
+              <Label htmlFor="wellType">Well Classification</Label>
+              <Select 
+                value={projectConfig.wellType} 
+                onValueChange={(value) => {
+                  setProjectConfig({...projectConfig, wellType: value});
+                  // Re-evaluate selected services rates and quantities based on new classification
+                  setSelectedServices(selectedServices.map(s => {
+                    const pricing = pricingSchedules.find(ps => ps.serviceId === s.service.id && ps.wellType === value);
+                    const wellTime = wellTimes.find(wt => wt.serviceId === s.service.id);
+                    
+                    const isUnpriced = !pricing || parseFloat(pricing.unitPrice ?? "0") === 0;
+                    const unitPrice = pricing ? parseFloat(pricing.unitPrice ?? "0") : parseFloat(s.service.baseRate ?? "0");
+                    
+                    let quantity = 1;
+                    if (s.service.pricingType === "Per Day") {
+                      if (wellTime && wellTime.estimatedTime) {
+                        quantity = parseFloat((wellTime.estimatedTime / 24).toFixed(2));
+                      } else {
+                        quantity = projectConfig.duration;
+                      }
+                    } else if (pricing && pricing.duration && pricing.duration > 0) {
+                      quantity = pricing.duration;
+                    }
+
+                    return {
+                      ...s,
+                      unitPrice,
+                      quantity,
+                      totalPrice: unitPrice * quantity,
+                      isUnpriced
+                    };
+                  }));
+                }}
+              >
+                <SelectTrigger id="wellType">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="MISHRIF VERTICAL">MISHRIF VERTICAL</SelectItem>
+                  <SelectItem value="MISHRIF DEVIATED">MISHRIF DEVIATED</SelectItem>
+                  <SelectItem value="NAHR UMR VERTICAL">NAHR UMR VERTICAL</SelectItem>
+                  <SelectItem value="ZUBAIR VERTICAL">ZUBAIR VERTICAL</SelectItem>
+                  <SelectItem value="ZUBAIR DEVIATED">ZUBAIR DEVIATED</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <Label htmlFor="duration">Duration (days)</Label>
               <Input
                 id="duration"
                 type="number"
                 value={projectConfig.duration}
-                onChange={(e) => setProjectConfig({...projectConfig, duration: parseInt(e.target.value)})}
+                onChange={(e) => setProjectConfig({...projectConfig, duration: parseInt(e.target.value) || 30})}
                 placeholder="Enter duration"
               />
             </div>
@@ -212,7 +297,7 @@ export default function GenerateTender() {
             <div>
               <Label htmlFor="currency">Currency</Label>
               <Select value={projectConfig.currency} onValueChange={(value) => setProjectConfig({...projectConfig, currency: value})}>
-                <SelectTrigger>
+                <SelectTrigger id="currency">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -229,15 +314,19 @@ export default function GenerateTender() {
       {/* Service Selection and Pricing */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ServiceSelection
-          services={services || []}
+          services={services}
           selectedServices={selectedServices}
           onServiceToggle={handleServiceToggle}
+          wellType={projectConfig.wellType}
+          pricingSchedules={pricingSchedules}
+          wellTimes={wellTimes}
         />
         
         <PricingSummary
           selectedServices={selectedServices}
           projectConfig={projectConfig}
           onQuantityChange={handleQuantityChange}
+          onUnitPriceChange={handleUnitPriceChange}
           onRemoveService={handleRemoveService}
           totals={calculateTotals()}
         />

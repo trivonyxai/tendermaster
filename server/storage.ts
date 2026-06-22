@@ -33,6 +33,8 @@ export interface IStorage {
   getPricingSchedules(): Promise<PricingSchedule[]>;
   getPricingSchedulesByService(serviceId: number): Promise<PricingSchedule[]>;
   createPricingSchedule(schedule: InsertPricingSchedule): Promise<PricingSchedule>;
+  updatePricingSchedule(id: number, schedule: Partial<InsertPricingSchedule>): Promise<PricingSchedule | undefined>;
+  deletePricingSchedule(id: number): Promise<boolean>;
 
   // Tenders
   getTenders(): Promise<Tender[]>;
@@ -50,6 +52,8 @@ export interface IStorage {
   getWellTimes(): Promise<WellTime[]>;
   getWellTimesByService(serviceId: number): Promise<WellTime[]>;
   createWellTime(wellTime: InsertWellTime): Promise<WellTime>;
+  updateWellTime(id: number, wellTime: Partial<InsertWellTime>): Promise<WellTime | undefined>;
+  deleteWellTime(id: number): Promise<boolean>;
 
   // Dashboard
   getDashboardStats(): Promise<DashboardStats>;
@@ -57,6 +61,7 @@ export interface IStorage {
   // Bulk operations
   bulkCreateServices(services: InsertService[]): Promise<Service[]>;
   bulkCreatePricingSchedules(schedules: InsertPricingSchedule[]): Promise<PricingSchedule[]>;
+  bulkCreateWellTimes(wellTimes: InsertWellTime[]): Promise<WellTime[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -78,15 +83,74 @@ export class MemStorage implements IStorage {
   }
 
   private seedData() {
-    // Seed with sample services from the CSV data
+    // Seed with all 66 services from the CSV data
     const sampleServices = [
       { name: "Project Management", segment: "BL-IWC-PMG", pricingType: "Per Day", baseRate: "1200", isActive: true },
-      { name: "1000 HP Drilling Rig", segment: "BL-WCE-RIG", pricingType: "Per Day", baseRate: "5500", isActive: true },
-      { name: "1500 HP Drilling Rig", segment: "BL-WCE-RIG", pricingType: "Per Day", baseRate: "7200", isActive: true },
-      { name: "2000 HP Drilling Rig", segment: "BL-WCE-RIG", pricingType: "Per Day", baseRate: "9800", isActive: true },
-      { name: "Cementing Products", segment: "BL-WCF-CEM", pricingType: "Per Job", baseRate: "12500", isActive: true },
-      { name: "Cementing Services", segment: "BL-WCF-CEM", pricingType: "Per Job", baseRate: "8750", isActive: true },
-      { name: "MWD Services", segment: "BL-WCM-DM", pricingType: "Per Day", baseRate: "2800", isActive: true },
+      { name: "SLR Rig Demob", segment: "BL-WCE-RIG", pricingType: "None", baseRate: "1500", isActive: true },
+      { name: "SLR Rig Mob ", segment: "BL-WCE-RIG", pricingType: "Per Day", baseRate: "1500", isActive: true },
+      { name: "SLR Rig Move", segment: "BL-WCE-RIG", pricingType: "Lumpsum", baseRate: "2000", isActive: true },
+      { name: "SLR Rig Camp", segment: "BL-WCE-RIG", pricingType: "Lumpsum", baseRate: "2500", isActive: true },
+      { name: "SLR Support", segment: "BL-WCE-RIG", pricingType: "Lumpsum", baseRate: "1800", isActive: true },
+      { name: "SLR Civil Works", segment: "BL-WCE-RIG", pricingType: "Lumpsum", baseRate: "3500", isActive: true },
+      { name: "500 HP WO Rig", segment: "BL-WCE-RIG", pricingType: "Lumpsum", baseRate: "4200", isActive: true },
+      { name: "750 HP WO Rig", segment: "BL-WCE-RIG", pricingType: "Lumpsum", baseRate: "4800", isActive: true },
+      { name: "1000 HP WO Rig", segment: "BL-WCE-RIG", pricingType: "Lumpsum", baseRate: "5500", isActive: true },
+      { name: "1000 HP Drilling Rig", segment: "BL-WCE-RIG", pricingType: "Lumpsum", baseRate: "5500", isActive: true },
+      { name: "1500 HP Drilling Rig", segment: "BL-WCE-RIG", pricingType: "Lumpsum", baseRate: "7200", isActive: true },
+      { name: "2000 HP Drilling Rig", segment: "BL-WCE-RIG", pricingType: "Lumpsum", baseRate: "9800", isActive: true },
+      { name: "2500 HP Drilling Rig", segment: "BL-WCE-RIG", pricingType: "Lumpsum", baseRate: "11500", isActive: true },
+      { name: "3000 HP Drilling Rig", segment: "BL-WCE-RIG", pricingType: "Lumpsum", baseRate: "14000", isActive: true },
+      { name: "Bits & Drilling Tools", segment: "BL-WCD-BDT", pricingType: "Lumpsum", baseRate: "3000", isActive: true },
+      { name: "Drilling tools", segment: "BL-WCD-BDT", pricingType: "Lumpsum", baseRate: "3500", isActive: true },
+      { name: "Fishing Products", segment: "BL-WCD-BDT", pricingType: "Lumpsum", baseRate: "4500", isActive: true },
+      { name: "Fishing Services/Rental", segment: "BL-WCD-BDT", pricingType: "Lumpsum", baseRate: "5000", isActive: true },
+      { name: "D&M Services", segment: "BL-WCM-DM", pricingType: "Lumpsum", baseRate: "6000", isActive: true },
+      { name: "Performance Drilling Motors / RSS", segment: "BL-WCM-DM", pricingType: "Lumpsum", baseRate: "7500", isActive: true },
+      { name: "MWD Services", segment: "BL-WCM-DM", pricingType: "Lumpsum", baseRate: "2800", isActive: true },
+      { name: "Mud Logging GSS", segment: "BL-WCM-DM", pricingType: "Lumpsum", baseRate: "2200", isActive: true },
+      { name: "Mud Logging Services", segment: "BL-WCM-GSS", pricingType: "Lumpsum", baseRate: "2500", isActive: true },
+      { name: "M-I Equipment (Centrifuge)", segment: "BL-WCF-MI", pricingType: "Lumpsum", baseRate: "1500", isActive: true },
+      { name: "M-I Filtration", segment: "BL-WCF-MI", pricingType: "Lumpsum", baseRate: "1800", isActive: true },
+      { name: "Drilling Fluid Services", segment: "BL-WCF-MI", pricingType: "Lumpsum", baseRate: "5500", isActive: true },
+      { name: "M-I Fluids-Contingency", segment: "BL-WCF-MI", pricingType: "Lumpsum", baseRate: "8000", isActive: true },
+      { name: "Drilling Fluid Products & Services", segment: "BL-WCF-MI", pricingType: "Lumpsum", baseRate: "9500", isActive: true },
+      { name: "M-I Shaker Screens", segment: "BL-WCF-MI", pricingType: "Lumpsum", baseRate: "1000", isActive: true },
+      { name: "MI-Waste Management", segment: "BL-WCF-MI", pricingType: "Lumpsum", baseRate: "3200", isActive: true },
+      { name: "M-I Fluids Safety Margin", segment: "BL-WCF-MI", pricingType: "Lumpsum", baseRate: "4000", isActive: true },
+      { name: "MI-Wellbore Cleaning Tools", segment: "BL-WCF-MI", pricingType: "Lumpsum", baseRate: "2500", isActive: true },
+      { name: "Cementing Products", segment: "BL-WCF-CEM", pricingType: "Lumpsum", baseRate: "12500", isActive: true },
+      { name: "Cementing Services", segment: "BL-WCF-CEM", pricingType: "Lumpsum", baseRate: "8750", isActive: true },
+      { name: "Coiled Tubing Services", segment: "BL-RPE-CT", pricingType: "Lumpsum", baseRate: "7000", isActive: true },
+      { name: "Cementting equipment and crew: flat monthly charge", segment: "BL-RPE-CT", pricingType: "Lumpsum", baseRate: "15000", isActive: true },
+      { name: "Hydraulic Fracturing", segment: "BL-RP-STIM", pricingType: "Lumpsum", baseRate: "25000", isActive: true },
+      { name: "Acidizing", segment: "BL-RP-STIM", pricingType: "Lumpsum", baseRate: "12000", isActive: true },
+      { name: "Sand Control Job", segment: "BL-RP-STIM", pricingType: "Lumpsum", baseRate: "18000", isActive: true },
+      { name: "Liner Hanger Products", segment: "BL-WPS-CPL", pricingType: "Lumpsum", baseRate: "9000", isActive: true },
+      { name: "Liner Hanger Services", segment: "BL-WPS-CPL", pricingType: "Lumpsum", baseRate: "4500", isActive: true },
+      { name: "Completions Products", segment: "BL-WPS-CPL", pricingType: "Lumpsum", baseRate: "11000", isActive: true },
+      { name: "Completions Services", segment: "BL-WPS-CPL", pricingType: "Lumpsum", baseRate: "6000", isActive: true },
+      { name: "Stimulation Tools - Products", segment: "BL-WPS-CPL", pricingType: "Lumpsum", baseRate: "8000", isActive: true },
+      { name: "Stimulation Tools - Services", segment: "BL-WPS-CPL", pricingType: "Lumpsum", baseRate: "5000", isActive: true },
+      { name: "Sand Control Tools - Products", segment: "BL-WPS-CPL", pricingType: "Lumpsum", baseRate: "7500", isActive: true },
+      { name: "Sand Control Tools - Services", segment: "BL-WPS-CPL", pricingType: "Lumpsum", baseRate: "4500", isActive: true },
+      { name: "Slickline Services", segment: "BL-RPE-WL", pricingType: "Lumpsum", baseRate: "3500", isActive: true },
+      { name: "Slickline Products", segment: "BL-RPE-WL", pricingType: "Lumpsum", baseRate: "1500", isActive: true },
+      { name: "Wireline Services", segment: "BL-RPE-WL", pricingType: "Lumpsum", baseRate: "9500", isActive: true },
+      { name: "Wireline Products", segment: "BL-RPE-WL", pricingType: "Lumpsum", baseRate: "4000", isActive: true },
+      { name: "Surface Well Testing Mob/Demob", segment: "BL-RPE-TS", pricingType: "Lumpsum", baseRate: "12000", isActive: true },
+      { name: "Surface Well Testing", segment: "BL-RPE-TS", pricingType: "Lumpsum", baseRate: "8500", isActive: true },
+      { name: "TCP with Downhole tools", segment: "BL-RPE-TS", pricingType: "Lumpsum", baseRate: "14000", isActive: true },
+      { name: "DST Tools", segment: "BL-RPE-TS", pricingType: "Lumpsum", baseRate: "9000", isActive: true },
+      { name: "Wellhead", segment: "BL-SPS-CAM", pricingType: "Lumpsum", baseRate: "15000", isActive: true },
+      { name: "Wellhead Installation", segment: "BL-SPS-CAM", pricingType: "Lumpsum", baseRate: "5000", isActive: true },
+      { name: "ESP System", segment: "BL-SPS-ALS", pricingType: "Lumpsum", baseRate: "22000", isActive: true },
+      { name: "GL System", segment: "BL-SPS-ALS", pricingType: "Lumpsum", baseRate: "12000", isActive: true },
+      { name: "AL Surface work", segment: "BL-SPS-ALS", pricingType: "Lumpsum", baseRate: "4500", isActive: true },
+      { name: "PTS Support", segment: "BL-DI-DSS", pricingType: "Lumpsum", baseRate: "3000", isActive: true },
+      { name: "SIS Support", segment: "BL-DI-DSS", pricingType: "Lumpsum", baseRate: "4000", isActive: true },
+      { name: "Real Time Data Services", segment: "BL-DI-DSS", pricingType: "Lumpsum", baseRate: "2500", isActive: true },
+      { name: "Communications IT_", segment: "BL-DI-DSS", pricingType: "Lumpsum", baseRate: "2000", isActive: true },
+      { name: "Liner Hanger system ", segment: "BL-WPS-CPL", pricingType: "Lumpsum", baseRate: "9500", isActive: true },
     ];
 
     sampleServices.forEach(service => {
@@ -95,6 +159,76 @@ export class MemStorage implements IStorage {
         id,
         ...service,
         createdAt: new Date(),
+      });
+    });
+
+    // Seed default pricing schedules corresponding to the sample tender
+    const defaultPricing = [
+      // Mishrif Vertical Well (MV.1 to MV.9)
+      { serviceId: 1, wellType: "MISHRIF VERTICAL", duration: 24, unitPrice: "585046.48" },
+      { serviceId: 2, wellType: "MISHRIF VERTICAL", duration: 0, unitPrice: "669.09" },
+      { serviceId: 3, wellType: "MISHRIF VERTICAL", duration: 0, unitPrice: "262.78" },
+      { serviceId: 4, wellType: "MISHRIF VERTICAL", duration: 0, unitPrice: "413.06" },
+      { serviceId: 5, wellType: "MISHRIF VERTICAL", duration: 0, unitPrice: "872.08" },
+      { serviceId: 7, wellType: "MISHRIF VERTICAL", duration: 0, unitPrice: "6497.27" },
+      { serviceId: 8, wellType: "MISHRIF VERTICAL", duration: 3, unitPrice: "59098.52" },
+      { serviceId: 9, wellType: "MISHRIF VERTICAL", duration: 0, unitPrice: "13500.00" },
+
+      // Mishrif Deviated Well (MD.1 to MD.9)
+      { serviceId: 10, wellType: "MISHRIF DEVIATED", duration: 26, unitPrice: "618616.07" },
+      { serviceId: 11, wellType: "MISHRIF DEVIATED", duration: 0, unitPrice: "669.09" },
+      { serviceId: 12, wellType: "MISHRIF DEVIATED", duration: 0, unitPrice: "262.78" },
+      { serviceId: 13, wellType: "MISHRIF DEVIATED", duration: 0, unitPrice: "483.06" },
+      { serviceId: 14, wellType: "MISHRIF DEVIATED", duration: 0, unitPrice: "680.77" },
+      { serviceId: 16, wellType: "MISHRIF DEVIATED", duration: 0, unitPrice: "6497.27" },
+      { serviceId: 17, wellType: "MISHRIF DEVIATED", duration: 3, unitPrice: "54174.79" },
+      { serviceId: 18, wellType: "MISHRIF DEVIATED", duration: 0, unitPrice: "13500.00" }
+    ];
+
+    defaultPricing.forEach(ps => {
+      const id = this.currentId++;
+      this.pricingSchedules.set(id, {
+        id,
+        serviceId: ps.serviceId,
+        wellType: ps.wellType,
+        duration: ps.duration,
+        unitPrice: ps.unitPrice,
+        currency: "USD",
+        createdAt: new Date()
+      });
+    });
+
+    // Seed default well times corresponding to the well times per section CSV
+    const defaultWellTimes = [
+      // MV
+      { serviceId: 1, section: "Well Site Services", estimatedTime: 584, contingencyTime: 0 },
+      { serviceId: 2, section: "32\" drilling phase with preinstalled Conductor Pipe", estimatedTime: 0, contingencyTime: 0 },
+      { serviceId: 3, section: "23\" drilling phase", estimatedTime: 4, contingencyTime: 0 },
+      { serviceId: 4, section: "17 1/2\" drilling phase", estimatedTime: 12, contingencyTime: 0 },
+      { serviceId: 5, section: "12 1/4\" drilling phase", estimatedTime: 8, contingencyTime: 0 },
+      { serviceId: 7, section: "Running of kill string", estimatedTime: 10, contingencyTime: 0 },
+      { serviceId: 8, section: "Running of completion string", estimatedTime: 76, contingencyTime: 0 },
+      { serviceId: 9, section: "Wellhead and X-mas Tree installation service", estimatedTime: 0, contingencyTime: 0 },
+      
+      // MD
+      { serviceId: 10, section: "Well Site Services", estimatedTime: 644, contingencyTime: 0 },
+      { serviceId: 11, section: "32\" drilling phase with preinstalled Conductor Pipe", estimatedTime: 0, contingencyTime: 0 },
+      { serviceId: 12, section: "23\" drilling phase", estimatedTime: 4, contingencyTime: 0 },
+      { serviceId: 13, section: "17 1/2\" drilling phase", estimatedTime: 13, contingencyTime: 0 },
+      { serviceId: 14, section: "12 1/4\" drilling phase", estimatedTime: 9, contingencyTime: 0 },
+      { serviceId: 16, section: "Running of kill string", estimatedTime: 10, contingencyTime: 0 },
+      { serviceId: 17, section: "Running of completion string", estimatedTime: 78, contingencyTime: 0 },
+      { serviceId: 18, section: "Wellhead and X-mas Tree installation service", estimatedTime: 0, contingencyTime: 0 }
+    ];
+
+    defaultWellTimes.forEach(wt => {
+      const id = this.currentId++;
+      this.wellTimes.set(id, {
+        id,
+        serviceId: wt.serviceId,
+        section: wt.section,
+        estimatedTime: wt.estimatedTime,
+        contingencyTime: wt.contingencyTime
       });
     });
   }
@@ -127,7 +261,11 @@ export class MemStorage implements IStorage {
     const id = this.currentId++;
     const newService: Service = {
       id,
-      ...service,
+      name: service.name,
+      segment: service.segment,
+      pricingType: service.pricingType,
+      baseRate: service.baseRate !== undefined && service.baseRate !== null ? String(parseFloat(String(service.baseRate)).toFixed(2)) : null,
+      isActive: service.isActive ?? true,
       createdAt: new Date(),
     };
     this.services.set(id, newService);
@@ -138,7 +276,11 @@ export class MemStorage implements IStorage {
     const existing = this.services.get(id);
     if (!existing) return undefined;
 
-    const updated = { ...existing, ...service };
+    const updated = { 
+      ...existing, 
+      ...service,
+      baseRate: service.baseRate !== undefined ? (service.baseRate !== null ? String(parseFloat(String(service.baseRate)).toFixed(2)) : null) : existing.baseRate,
+    };
     this.services.set(id, updated);
     return updated;
   }
@@ -167,11 +309,35 @@ export class MemStorage implements IStorage {
     const id = this.currentId++;
     const newSchedule: PricingSchedule = {
       id,
-      ...schedule,
+      serviceId: schedule.serviceId ?? null,
+      wellType: schedule.wellType ?? null,
+      duration: schedule.duration ?? null,
+      unitPrice: schedule.unitPrice !== undefined && schedule.unitPrice !== null ? String(parseFloat(String(schedule.unitPrice)).toFixed(2)) : null,
+      currency: schedule.currency ?? null,
       createdAt: new Date(),
     };
     this.pricingSchedules.set(id, newSchedule);
     return newSchedule;
+  }
+
+  async updatePricingSchedule(id: number, schedule: Partial<InsertPricingSchedule>): Promise<PricingSchedule | undefined> {
+    const existing = this.pricingSchedules.get(id);
+    if (!existing) return undefined;
+
+    const updated: PricingSchedule = {
+      ...existing,
+      serviceId: schedule.serviceId !== undefined ? (schedule.serviceId ?? null) : existing.serviceId,
+      wellType: schedule.wellType !== undefined ? (schedule.wellType ?? null) : existing.wellType,
+      duration: schedule.duration !== undefined ? (schedule.duration ?? null) : existing.duration,
+      unitPrice: schedule.unitPrice !== undefined ? (schedule.unitPrice !== null ? String(parseFloat(String(schedule.unitPrice)).toFixed(2)) : null) : existing.unitPrice,
+      currency: schedule.currency !== undefined ? (schedule.currency ?? null) : existing.currency,
+    };
+    this.pricingSchedules.set(id, updated);
+    return updated;
+  }
+
+  async deletePricingSchedule(id: number): Promise<boolean> {
+    return this.pricingSchedules.delete(id);
   }
 
   async getTenders(): Promise<Tender[]> {
@@ -200,7 +366,19 @@ export class MemStorage implements IStorage {
     const id = this.currentId++;
     const newTender: Tender = {
       id,
-      ...tender,
+      projectName: tender.projectName,
+      clientName: tender.clientName,
+      clientEmail: tender.clientEmail ?? null,
+      clientPhone: tender.clientPhone ?? null,
+      projectLocation: tender.projectLocation ?? null,
+      duration: tender.duration,
+      startDate: tender.startDate !== undefined ? (tender.startDate !== null ? new Date(tender.startDate) : null) : null,
+      subtotal: tender.subtotal !== undefined && tender.subtotal !== null ? String(parseFloat(String(tender.subtotal)).toFixed(2)) : null,
+      taxRate: tender.taxRate !== undefined && tender.taxRate !== null ? String(parseFloat(String(tender.taxRate)).toFixed(2)) : "8.50",
+      contingencyRate: tender.contingencyRate !== undefined && tender.contingencyRate !== null ? String(parseFloat(String(tender.contingencyRate)).toFixed(2)) : "10.00",
+      totalAmount: tender.totalAmount !== undefined && tender.totalAmount !== null ? String(parseFloat(String(tender.totalAmount)).toFixed(2)) : null,
+      currency: tender.currency ?? null,
+      status: tender.status ?? null,
       createdAt: new Date(),
     };
     this.tenders.set(id, newTender);
@@ -211,7 +389,22 @@ export class MemStorage implements IStorage {
     const existing = this.tenders.get(id);
     if (!existing) return undefined;
 
-    const updated = { ...existing, ...tender };
+    const updated: Tender = { 
+      ...existing,
+      projectName: tender.projectName ?? existing.projectName,
+      clientName: tender.clientName ?? existing.clientName,
+      clientEmail: tender.clientEmail !== undefined ? (tender.clientEmail ?? null) : existing.clientEmail,
+      clientPhone: tender.clientPhone !== undefined ? (tender.clientPhone ?? null) : existing.clientPhone,
+      projectLocation: tender.projectLocation !== undefined ? (tender.projectLocation ?? null) : existing.projectLocation,
+      duration: tender.duration ?? existing.duration,
+      startDate: tender.startDate !== undefined ? (tender.startDate !== null ? new Date(tender.startDate) : null) : existing.startDate,
+      subtotal: tender.subtotal !== undefined ? (tender.subtotal !== null ? String(parseFloat(String(tender.subtotal)).toFixed(2)) : null) : existing.subtotal,
+      taxRate: tender.taxRate !== undefined ? (tender.taxRate !== null ? String(parseFloat(String(tender.taxRate)).toFixed(2)) : null) : existing.taxRate,
+      contingencyRate: tender.contingencyRate !== undefined ? (tender.contingencyRate !== null ? String(parseFloat(String(tender.contingencyRate)).toFixed(2)) : null) : existing.contingencyRate,
+      totalAmount: tender.totalAmount !== undefined ? (tender.totalAmount !== null ? String(parseFloat(String(tender.totalAmount)).toFixed(2)) : null) : existing.totalAmount,
+      currency: tender.currency !== undefined ? (tender.currency ?? null) : existing.currency,
+      status: tender.status !== undefined ? (tender.status ?? null) : existing.status,
+    };
     this.tenders.set(id, updated);
     return updated;
   }
@@ -224,7 +417,11 @@ export class MemStorage implements IStorage {
     const id = this.currentId++;
     const newTenderService: TenderService = {
       id,
-      ...tenderService,
+      tenderId: tenderService.tenderId ?? null,
+      serviceId: tenderService.serviceId ?? null,
+      quantity: tenderService.quantity,
+      unitPrice: tenderService.unitPrice !== undefined && tenderService.unitPrice !== null ? String(parseFloat(String(tenderService.unitPrice)).toFixed(2)) : null,
+      totalPrice: tenderService.totalPrice !== undefined && tenderService.totalPrice !== null ? String(parseFloat(String(tenderService.totalPrice)).toFixed(2)) : null,
     };
     this.tenderServices.set(id, newTenderService);
     return newTenderService;
@@ -254,10 +451,32 @@ export class MemStorage implements IStorage {
     const id = this.currentId++;
     const newWellTime: WellTime = {
       id,
-      ...wellTime,
+      serviceId: wellTime.serviceId ?? null,
+      section: wellTime.section,
+      estimatedTime: wellTime.estimatedTime ?? null,
+      contingencyTime: wellTime.contingencyTime ?? null,
     };
     this.wellTimes.set(id, newWellTime);
     return newWellTime;
+  }
+
+  async updateWellTime(id: number, wellTime: Partial<InsertWellTime>): Promise<WellTime | undefined> {
+    const existing = this.wellTimes.get(id);
+    if (!existing) return undefined;
+
+    const updated: WellTime = {
+      ...existing,
+      serviceId: wellTime.serviceId !== undefined ? (wellTime.serviceId ?? null) : existing.serviceId,
+      section: wellTime.section ?? existing.section,
+      estimatedTime: wellTime.estimatedTime !== undefined ? (wellTime.estimatedTime ?? null) : existing.estimatedTime,
+      contingencyTime: wellTime.contingencyTime !== undefined ? (wellTime.contingencyTime ?? null) : existing.contingencyTime,
+    };
+    this.wellTimes.set(id, updated);
+    return updated;
+  }
+
+  async deleteWellTime(id: number): Promise<boolean> {
+    return this.wellTimes.delete(id);
   }
 
   async getDashboardStats(): Promise<DashboardStats> {
@@ -274,14 +493,14 @@ export class MemStorage implements IStorage {
     return {
       totalServices,
       activeTenders,
-      totalValue: `$${(totalValue / 1000000).toFixed(1)}M`,
+      totalValue: `$${(totalValue / 1000000).toFixed(2)}M`,
       completionRate: `${completionRate}%`,
     };
   }
 
-  async bulkCreateServices(services: InsertService[]): Promise<Service[]> {
+  async bulkCreateServices(servicesList: InsertService[]): Promise<Service[]> {
     const createdServices: Service[] = [];
-    for (const service of services) {
+    for (const service of servicesList) {
       const created = await this.createService(service);
       createdServices.push(created);
     }
@@ -295,6 +514,15 @@ export class MemStorage implements IStorage {
       createdSchedules.push(created);
     }
     return createdSchedules;
+  }
+
+  async bulkCreateWellTimes(wellTimesList: InsertWellTime[]): Promise<WellTime[]> {
+    const createdWellTimes: WellTime[] = [];
+    for (const wt of wellTimesList) {
+      const created = await this.createWellTime(wt);
+      createdWellTimes.push(created);
+    }
+    return createdWellTimes;
   }
 }
 

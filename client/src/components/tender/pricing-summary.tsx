@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { X } from "lucide-react";
+import { X, AlertTriangle } from "lucide-react";
 import type { Service } from "@shared/schema";
 
 interface SelectedService {
@@ -11,6 +11,7 @@ interface SelectedService {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  isUnpriced?: boolean;
 }
 
 interface ProjectConfig {
@@ -24,6 +25,7 @@ interface PricingSummaryProps {
   selectedServices: SelectedService[];
   projectConfig: ProjectConfig;
   onQuantityChange: (serviceId: number, quantity: number) => void;
+  onUnitPriceChange: (serviceId: number, unitPrice: number) => void;
   onRemoveService: (serviceId: number) => void;
   totals: {
     subtotal: number;
@@ -37,6 +39,7 @@ export default function PricingSummary({
   selectedServices, 
   projectConfig, 
   onQuantityChange, 
+  onUnitPriceChange,
   onRemoveService,
   totals 
 }: PricingSummaryProps) {
@@ -51,7 +54,7 @@ export default function PricingSummary({
     <Card>
       <CardHeader>
         <CardTitle>Selected Services & Pricing</CardTitle>
-        <CardDescription>Review and adjust your service selections</CardDescription>
+        <CardDescription>Review and adjust your service selections and rates</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {selectedServices.length === 0 ? (
@@ -66,37 +69,76 @@ export default function PricingSummary({
           <div className="space-y-3">
             <h5 className="font-medium text-gray-900">Selected Services</h5>
             {selectedServices.map((selectedService) => (
-              <div key={selectedService.service.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onRemoveService(selectedService.service.id)}
-                  className="text-industry-error hover:text-industry-error p-1"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900">{selectedService.service.name}</p>
-                  <p className="text-xs text-gray-500">
-                    {selectedService.quantity} × {formatCurrency(selectedService.unitPrice)}
-                  </p>
-                </div>
+              <div 
+                key={selectedService.service.id} 
+                className={`flex flex-col md:flex-row md:items-center justify-between p-3 rounded-lg gap-2 border ${
+                  selectedService.isUnpriced 
+                    ? "bg-red-50/50 border-red-200" 
+                    : "bg-gray-50 border-gray-150"
+                }`}
+              >
                 <div className="flex items-center space-x-2">
-                  <Label htmlFor={`quantity-${selectedService.service.id}`} className="text-xs text-gray-500">
-                    Qty:
-                  </Label>
-                  <Input
-                    id={`quantity-${selectedService.service.id}`}
-                    type="number"
-                    value={selectedService.quantity}
-                    onChange={(e) => onQuantityChange(selectedService.service.id, parseInt(e.target.value) || 1)}
-                    className="w-16 h-8 text-xs"
-                    min="1"
-                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onRemoveService(selectedService.service.id)}
+                    className="text-industry-error hover:text-industry-error p-1 h-8 w-8"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-gray-900">{selectedService.service.name}</p>
+                      {selectedService.isUnpriced && (
+                        <span className="text-[10px] text-red-600 bg-red-100 px-1.5 py-0.5 rounded flex items-center gap-1 font-semibold">
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          Unpriced
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Segment: {selectedService.service.segment}
+                    </p>
+                  </div>
                 </div>
-                <span className="text-sm font-semibold text-gray-900 min-w-[80px] text-right">
-                  {formatCurrency(selectedService.totalPrice)}
-                </span>
+
+                <div className="flex items-center gap-3 flex-wrap md:flex-nowrap">
+                  <div className="flex items-center space-x-1.5">
+                    <Label htmlFor={`quantity-${selectedService.service.id}`} className="text-xs text-gray-500">
+                      Qty:
+                    </Label>
+                    <Input
+                      id={`quantity-${selectedService.service.id}`}
+                      type="number"
+                      value={selectedService.quantity}
+                      onChange={(e) => onQuantityChange(selectedService.service.id, parseFloat(e.target.value) || 0)}
+                      className="w-16 h-8 text-xs bg-white"
+                      min="0.01"
+                      step="any"
+                    />
+                  </div>
+
+                  <div className="flex items-center space-x-1.5">
+                    <Label htmlFor={`rate-${selectedService.service.id}`} className="text-xs text-gray-500">
+                      Rate:
+                    </Label>
+                    <Input
+                      id={`rate-${selectedService.service.id}`}
+                      type="number"
+                      value={selectedService.unitPrice}
+                      onChange={(e) => onUnitPriceChange(selectedService.service.id, parseFloat(e.target.value) || 0)}
+                      className={`w-24 h-8 text-xs bg-white font-medium ${
+                        selectedService.isUnpriced ? "border-red-300 ring-red-200 focus-visible:ring-red-400" : ""
+                      }`}
+                      min="0"
+                      step="0.01"
+                    />
+                  </div>
+
+                  <span className="text-sm font-semibold text-gray-900 min-w-[90px] text-right">
+                    {formatCurrency(selectedService.totalPrice)}
+                  </span>
+                </div>
               </div>
             ))}
           </div>
