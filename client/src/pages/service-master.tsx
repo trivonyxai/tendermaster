@@ -3,58 +3,122 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import DataTable from "@/components/ui/data-table";
 import { apiRequest } from "@/lib/queryClient";
-import { Plus, Search, Edit, Trash2, Filter } from "lucide-react";
+import { Plus, Search, Edit, Trash2 } from "lucide-react";
 import type { Service } from "@shared/schema";
+
+const emptyForm = {
+  name: "",
+  segment: "",
+  pricingType: "Lumpsum",
+  baseRate: "",
+  segmentMarkup: "1.000",
+  tpMarkup: "1.150",
+  itemCode: "",
+  itemGroup: "",
+  serviceType: "Segment",
+  isActive: true,
+};
 
 export default function ServiceMaster() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [segmentFilter, setSegmentFilter] = useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingService, setEditingService] = useState<Service | null>(null);
+  const [form, setForm] = useState(emptyForm);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const { data: services, isLoading } = useQuery<Service[]>({
-    queryKey: ["/api/services"],
+    queryKey: segmentFilter ? ["/api/services", `?segment=${segmentFilter}`] : ["/api/services"],
+    queryFn: async () => {
+      const url = segmentFilter ? `/api/services?segment=${encodeURIComponent(segmentFilter)}` : "/api/services";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
   });
 
   const { data: searchResults, isLoading: isSearching } = useQuery<Service[]>({
-    queryKey: ["/api/services/search", searchQuery],
+    queryKey: ["/api/services/search", searchQuery, segmentFilter],
     queryFn: async () => {
       if (!searchQuery.trim()) return [];
-      const response = await fetch(`/api/services/search?q=${encodeURIComponent(searchQuery)}`);
+      let url = `/api/services/search?q=${encodeURIComponent(searchQuery)}`;
+      if (segmentFilter) url += `&segment=${encodeURIComponent(segmentFilter)}`;
+      const response = await fetch(url, { credentials: "include" });
       if (!response.ok) throw new Error("Search failed");
       return response.json();
     },
     enabled: searchQuery.trim().length > 0,
   });
 
-  const deleteServiceMutation = useMutation({
-    mutationFn: async (id: number) => {
-      return apiRequest("DELETE", `/api/services/${id}`);
+  const saveMutation = useMutation({
+    mutationFn: async (data: typeof form) => {
+      const payload = {
+        ...data,
+        baseRate: data.baseRate || null,
+        itemCode: data.itemCode || null,
+        itemGroup: data.itemGroup || null,
+      };
+      if (editingService) {
+        return apiRequest("PUT", `/api/services/${editingService.id}`, payload);
+      }
+      return apiRequest("POST", "/api/services", payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/services"] });
-      toast({
-        title: "Service deleted",
-        description: "The service has been successfully deleted.",
-      });
+      setDialogOpen(false);
+      setEditingService(null);
+      setForm(emptyForm);
+      toast({ title: editingService ? "Service updated" : "Service created" });
     },
     onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to delete service. Please try again.",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to save service.", variant: "destructive" });
     },
   });
 
-  const handleDeleteService = (id: number) => {
-    if (window.confirm("Are you sure you want to delete this service?")) {
-      deleteServiceMutation.mutate(id);
-    }
+  const deleteServiceMutation = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/services/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/services"] });
+      toast({ title: "Service deleted" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete service.", variant: "destructive" });
+    },
+  });
+
+  const openCreate = () => {
+    setEditingService(null);
+    setForm(emptyForm);
+    setDialogOpen(true);
   };
+
+  const openEdit = (service: Service) => {
+    setEditingService(service);
+    setForm({
+      name: service.name,
+      segment: service.segment,
+      pricingType: service.pricingType,
+      baseRate: service.baseRate ?? "",
+      segmentMarkup: service.segmentMarkup ?? "1.000",
+      tpMarkup: service.tpMarkup ?? "1.150",
+      itemCode: service.itemCode ?? "",
+      itemGroup: service.itemGroup ?? "",
+      serviceType: service.serviceType ?? "Segment",
+      isActive: service.isActive ?? true,
+    });
+    setDialogOpen(true);
+  };
+
+  const segments = Array.from(new Set((services ?? []).map((s) => s.segment))).sort();
 
   const getSegmentColor = (segment: string) => {
     if (segment.includes("RIG")) return "bg-industry-primary/10 text-industry-primary";
@@ -64,14 +128,6 @@ export default function ServiceMaster() {
     return "bg-gray-100 text-gray-700";
   };
 
-  const getServiceIcon = (segment: string) => {
-    if (segment.includes("RIG")) return "🔧";
-    if (segment.includes("CEM")) return "🏗️";
-    if (segment.includes("DM")) return "📡";
-    if (segment.includes("PMG")) return "📊";
-    return "🔧";
-  };
-
   const displayedServices = searchQuery.trim() ? searchResults : services;
 
   const columns = [
@@ -79,49 +135,37 @@ export default function ServiceMaster() {
       header: "Service Name",
       accessor: "name" as keyof Service,
       render: (service: Service) => (
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-industry-primary/10 rounded-lg flex items-center justify-center">
-            <span className="text-sm">{getServiceIcon(service.segment)}</span>
-          </div>
-          <div>
-            <div className="text-sm font-medium text-gray-900">{service.name}</div>
-            <div className="text-sm text-gray-500">Professional service</div>
-          </div>
+        <div>
+          <div className="text-sm font-medium text-gray-900">{service.name}</div>
+          {service.itemCode && <div className="text-xs text-gray-500">{service.itemCode}</div>}
         </div>
       ),
     },
     {
       header: "Segment",
       accessor: "segment" as keyof Service,
-      render: (service: Service) => (
-        <Badge className={getSegmentColor(service.segment)}>
-          {service.segment}
-        </Badge>
-      ),
+      render: (service: Service) => <Badge className={getSegmentColor(service.segment)}>{service.segment}</Badge>,
+    },
+    {
+      header: "Type",
+      accessor: "serviceType" as keyof Service,
+      render: (service: Service) => <span className="text-sm">{service.serviceType ?? "Segment"}</span>,
     },
     {
       header: "Pricing Type",
       accessor: "pricingType" as keyof Service,
-      render: (service: Service) => (
-        <span className="text-sm text-gray-900">{service.pricingType}</span>
-      ),
+      render: (service: Service) => <span className="text-sm">{service.pricingType}</span>,
     },
     {
       header: "Base Rate",
       accessor: "baseRate" as keyof Service,
-      render: (service: Service) => (
-        <span className="text-sm font-medium text-gray-900">${service.baseRate}</span>
-      ),
+      render: (service: Service) => <span className="text-sm font-medium">${service.baseRate}</span>,
     },
     {
       header: "Status",
       accessor: "isActive" as keyof Service,
       render: (service: Service) => (
-        <Badge variant={service.isActive ? "default" : "secondary"} className={
-          service.isActive 
-            ? "bg-industry-success/10 text-industry-success" 
-            : "bg-gray-100 text-gray-700"
-        }>
+        <Badge variant={service.isActive ? "default" : "secondary"}>
           {service.isActive ? "Active" : "Inactive"}
         </Badge>
       ),
@@ -131,20 +175,17 @@ export default function ServiceMaster() {
       accessor: "id" as keyof Service,
       render: (service: Service) => (
         <div className="flex space-x-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-industry-primary hover:text-industry-primary"
-          >
+          <Button variant="ghost" size="sm" onClick={() => openEdit(service)}>
             <Edit className="h-4 w-4" />
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => handleDeleteService(service.id)}
-            className="text-industry-error hover:text-industry-error"
+            onClick={() => {
+              if (window.confirm("Delete this service?")) deleteServiceMutation.mutate(service.id);
+            }}
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="h-4 w-4 text-industry-error" />
           </Button>
         </div>
       ),
@@ -152,81 +193,163 @@ export default function ServiceMaster() {
   ];
 
   if (isLoading) {
-    return (
-      <div className="p-6">
-        <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded mb-4"></div>
-          <div className="h-96 bg-gray-200 rounded-xl"></div>
-        </div>
-      </div>
-    );
+    return <div className="p-6 animate-pulse h-96 bg-gray-200 rounded-xl" />;
   }
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-gray-900">Service Master Data</h2>
           <p className="text-gray-600">Manage and view all available services and their pricing</p>
         </div>
-        <div className="flex items-center space-x-3">
-          <Button variant="outline">
-            <Filter className="h-4 w-4 mr-2" />
-            Filter
-          </Button>
-          <Button className="industry-primary">
-            <Plus className="h-4 w-4 mr-2" />
-            Add Service
-          </Button>
-        </div>
+        <Button className="industry-primary" onClick={openCreate}>
+          <Plus className="h-4 w-4 mr-2" />
+          Add Service
+        </Button>
       </div>
 
-      {/* Search */}
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="pt-6 space-y-4">
           <div className="relative">
             <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
             <Input
-              placeholder="Search services by name or segment..."
+              placeholder="Search services by name, segment, or item code..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"
             />
           </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant={segmentFilter === "" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSegmentFilter("")}
+            >
+              All
+            </Button>
+            {segments.map((seg) => (
+              <Button
+                key={seg}
+                variant={segmentFilter === seg ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSegmentFilter(seg)}
+              >
+                {seg}
+              </Button>
+            ))}
+          </div>
         </CardContent>
       </Card>
 
-      {/* Data Table */}
       <Card>
         <CardHeader>
-          <CardTitle>
-            Services ({displayedServices?.length || 0})
-            {searchQuery && (
-              <span className="text-sm font-normal text-gray-500 ml-2">
-                - Search results for "{searchQuery}"
-              </span>
-            )}
-          </CardTitle>
-          <CardDescription>
-            {searchQuery ? "Filtered service results" : "All available services in the system"}
-          </CardDescription>
+          <CardTitle>Services ({displayedServices?.length || 0})</CardTitle>
+          <CardDescription>Full CRUD for service master records</CardDescription>
         </CardHeader>
         <CardContent>
           {isSearching ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-industry-primary"></div>
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-industry-primary" />
             </div>
           ) : (
-            <DataTable
-              data={displayedServices || []}
-              columns={columns}
-              searchable={false}
-              pagination={true}
-            />
+            <DataTable data={displayedServices || []} columns={columns} searchable={false} pagination />
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingService ? "Edit Service" : "Add Service"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>Name</Label>
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </div>
+            <div>
+              <Label>Segment</Label>
+              <Input value={form.segment} onChange={(e) => setForm({ ...form, segment: e.target.value })} placeholder="BL-WCE-RIG" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Pricing Type</Label>
+                <Select value={form.pricingType} onValueChange={(v) => setForm({ ...form, pricingType: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Lumpsum">Lumpsum</SelectItem>
+                    <SelectItem value="Per Day">Per Day</SelectItem>
+                    <SelectItem value="Per Job">Per Job</SelectItem>
+                    <SelectItem value="None">None</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Service Type</Label>
+                <Select value={form.serviceType} onValueChange={(v) => setForm({ ...form, serviceType: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Segment">Segment</SelectItem>
+                    <SelectItem value="ThirdParty">Third Party</SelectItem>
+                    <SelectItem value="Riskpot">Riskpot</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Base Rate ($)</Label>
+                <Input type="number" value={form.baseRate} onChange={(e) => setForm({ ...form, baseRate: e.target.value })} />
+              </div>
+              <div>
+                <Label>Item Code</Label>
+                <Input value={form.itemCode} onChange={(e) => setForm({ ...form, itemCode: e.target.value })} placeholder="MV.1" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Segment Markup</Label>
+                <Input
+                  type="number"
+                  step="0.001"
+                  value={form.segmentMarkup}
+                  onChange={(e) => setForm({ ...form, segmentMarkup: e.target.value })}
+                  placeholder="1.000"
+                />
+              </div>
+              <div>
+                <Label>Third Party Markup</Label>
+                <Input
+                  type="number"
+                  step="0.001"
+                  value={form.tpMarkup}
+                  onChange={(e) => setForm({ ...form, tpMarkup: e.target.value })}
+                  placeholder="1.150"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Item Group / Well Class</Label>
+              <Input value={form.itemGroup} onChange={(e) => setForm({ ...form, itemGroup: e.target.value })} />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={form.isActive} onCheckedChange={(v) => setForm({ ...form, isActive: v })} />
+              <Label>Active</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button
+              className="industry-primary"
+              disabled={!form.name || !form.segment || saveMutation.isPending}
+              onClick={() => saveMutation.mutate(form)}
+            >
+              {saveMutation.isPending ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

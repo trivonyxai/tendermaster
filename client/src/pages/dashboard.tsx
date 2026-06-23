@@ -16,7 +16,7 @@ import {
   Eye
 } from "lucide-react";
 import { Link } from "wouter";
-import type { DashboardStats, Service, Tender } from "@shared/schema";
+import type { DashboardStats, Service, ActivityItem } from "@shared/schema";
 
 export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
@@ -27,11 +27,11 @@ export default function Dashboard() {
     queryKey: ["/api/services"],
   });
 
-  const { data: recentTenders, isLoading: tendersLoading } = useQuery<Tender[]>({
-    queryKey: ["/api/tenders"],
+  const { data: activity = [], isLoading: activityLoading } = useQuery<ActivityItem[]>({
+    queryKey: ["/api/dashboard/activity"],
   });
 
-  if (statsLoading || servicesLoading || tendersLoading) {
+  if (statsLoading || servicesLoading || activityLoading) {
     return (
       <div className="p-6">
         <div className="animate-pulse">
@@ -68,7 +68,9 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="mt-4">
-              <span className="text-sm text-industry-success">+12% from last month</span>
+              <span className="text-sm text-gray-500">
+                {stats?.servicesTrend === "N/A" ? "N/A" : `${stats?.servicesTrend} from last month`}
+              </span>
             </div>
           </CardContent>
         </Card>
@@ -85,7 +87,9 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="mt-4">
-              <span className="text-sm text-industry-success">+8% from last month</span>
+              <span className="text-sm text-gray-500">
+                {stats?.tendersTrend === "N/A" ? "N/A" : `${stats?.tendersTrend} from last month`}
+              </span>
             </div>
           </CardContent>
         </Card>
@@ -102,7 +106,9 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="mt-4">
-              <span className="text-sm text-industry-success">+15% from last month</span>
+              <span className="text-sm text-gray-500">
+                {stats?.valueTrend === "N/A" ? "N/A" : `${stats?.valueTrend} from last month`}
+              </span>
             </div>
           </CardContent>
         </Card>
@@ -119,7 +125,9 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="mt-4">
-              <span className="text-sm text-industry-success">+2% from last month</span>
+              <span className="text-sm text-gray-500">
+                {stats?.completionTrend === "N/A" ? "N/A" : `${stats?.completionTrend} from last month`}
+              </span>
             </div>
           </CardContent>
         </Card>
@@ -155,7 +163,20 @@ export default function Dashboard() {
                 <span>→</span>
               </Button>
             </Link>
-            <Button variant="outline" className="w-full justify-between">
+            <Button
+              variant="outline"
+              className="w-full justify-between"
+              onClick={async () => {
+                const res = await fetch("/api/tenders/export", { credentials: "include" });
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "tenders-export.csv";
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
               <div className="flex items-center space-x-3">
                 <Download className="h-4 w-4" />
                 <span>Export Tender Report</span>
@@ -173,33 +194,32 @@ export default function Dashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg">
-              <div className="w-8 h-8 bg-industry-success/10 rounded-full flex items-center justify-center">
-                <CheckCircle className="h-4 w-4 text-industry-success" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-900">Tender T-2024-001 Generated</p>
-                <p className="text-xs text-gray-500">2 hours ago</p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg">
-              <div className="w-8 h-8 bg-industry-primary/10 rounded-full flex items-center justify-center">
-                <Upload className="h-4 w-4 text-industry-primary" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-900">Service Master Updated</p>
-                <p className="text-xs text-gray-500">4 hours ago</p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg">
-              <div className="w-8 h-8 bg-industry-accent/10 rounded-full flex items-center justify-center">
-                <Calculator className="h-4 w-4 text-industry-accent" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-900">Pricing Schedule Modified</p>
-                <p className="text-xs text-gray-500">6 hours ago</p>
-              </div>
-            </div>
+            {activity.length > 0 ? (
+              activity.slice(0, 5).map((item) => (
+                <Link key={item.id} href={item.href ?? "/history"}>
+                  <div className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+                    <div className="w-8 h-8 bg-industry-success/10 rounded-full flex items-center justify-center">
+                      {item.type === "status_change" ? (
+                        <Clock className="h-4 w-4 text-industry-primary" />
+                      ) : (
+                        <CheckCircle className="h-4 w-4 text-industry-success" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">{item.title}</p>
+                      <p className="text-xs text-gray-500">
+                        {item.description} · {new Date(item.timestamp).toLocaleString()}
+                      </p>
+                    </div>
+                    {item.status && (
+                      <Badge variant="secondary" className="text-xs capitalize">{item.status}</Badge>
+                    )}
+                  </div>
+                </Link>
+              ))
+            ) : (
+              <p className="text-sm text-gray-500 text-center py-4">No activity yet. Generate your first tender.</p>
+            )}
           </CardContent>
         </Card>
       </div>

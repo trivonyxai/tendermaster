@@ -9,13 +9,23 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useToast } from "@/hooks/use-toast";
 import DataTable from "@/components/ui/data-table";
 import { apiRequest } from "@/lib/queryClient";
-import { Clock, Edit, Plus } from "lucide-react";
+import { Clock, Edit, Plus, Trash2 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Service, WellTime } from "@shared/schema";
 
 export default function WellTimesPage() {
   const [editingWellTime, setEditingWellTime] = useState<WellTime | null>(null);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [estTime, setEstTime] = useState("");
   const [contTime, setContTime] = useState("");
+  const [newWellTime, setNewWellTime] = useState({
+    serviceId: "",
+    section: "",
+    wellClass: "MISHRIF VERTICAL",
+    sectionCode: "",
+    estimatedTime: "0",
+    contingencyTime: "0",
+  });
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -46,6 +56,35 @@ export default function WellTimesPage() {
         variant: "destructive",
       });
     },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/well-times/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/well-times"] });
+      toast({ title: "Well time deleted" });
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const est = parseInt(newWellTime.estimatedTime) || 0;
+      return apiRequest("POST", "/api/well-times", {
+        serviceId: parseInt(newWellTime.serviceId),
+        section: newWellTime.section,
+        wellClass: newWellTime.wellClass,
+        sectionCode: newWellTime.sectionCode || null,
+        estimatedTime: est,
+        contingencyTime: parseInt(newWellTime.contingencyTime) || 0,
+        totalDays: (est / 24).toFixed(4),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/well-times"] });
+      setAddDialogOpen(false);
+      toast({ title: "Well time created" });
+    },
+    onError: () => toast({ title: "Error", variant: "destructive" }),
   });
 
   const handleEditClick = (wt: WellTime) => {
@@ -151,15 +190,20 @@ export default function WellTimesPage() {
       header: "Actions",
       accessor: "id" as any,
       render: (item: any) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => handleEditClick(item)}
-          className="text-industry-primary hover:text-industry-primary"
-        >
-          <Edit className="h-4 w-4 mr-2" />
-          Edit Times
-        </Button>
+        <div className="flex gap-1">
+          <Button variant="ghost" size="sm" onClick={() => handleEditClick(item)}>
+            <Edit className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              if (window.confirm("Delete this well time entry?")) deleteMutation.mutate(item.id);
+            }}
+          >
+            <Trash2 className="h-4 w-4 text-industry-error" />
+          </Button>
+        </div>
       )
     }
   ];
@@ -183,7 +227,7 @@ export default function WellTimesPage() {
           <h2 className="text-2xl font-semibold text-gray-900">Well Operation Times</h2>
           <p className="text-gray-600">Manage time estimates and contingency buffers for well operations</p>
         </div>
-        <Button className="industry-primary" disabled>
+        <Button className="industry-primary" onClick={() => setAddDialogOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
           Add Phase Estimate
         </Button>
@@ -268,6 +312,67 @@ export default function WellTimesPage() {
             </Button>
             <Button onClick={handleSaveTimes} className="industry-primary" disabled={updateTimeMutation.isPending}>
               {updateTimeMutation.isPending ? "Saving..." : "Save Times"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Phase Estimate</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label>Service</Label>
+              <Select value={newWellTime.serviceId} onValueChange={(v) => setNewWellTime({ ...newWellTime, serviceId: v })}>
+                <SelectTrigger><SelectValue placeholder="Select service" /></SelectTrigger>
+                <SelectContent>
+                  {services.map((s) => (
+                    <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Section / Phase</Label>
+              <Input value={newWellTime.section} onChange={(e) => setNewWellTime({ ...newWellTime, section: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Well Class</Label>
+                <Select value={newWellTime.wellClass} onValueChange={(v) => setNewWellTime({ ...newWellTime, wellClass: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="MISHRIF VERTICAL">MISHRIF VERTICAL</SelectItem>
+                    <SelectItem value="MISHRIF DEVIATED">MISHRIF DEVIATED</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Section Code</Label>
+                <Input value={newWellTime.sectionCode} onChange={(e) => setNewWellTime({ ...newWellTime, sectionCode: e.target.value })} placeholder="MV.3" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Est. Time (hrs)</Label>
+                <Input value={newWellTime.estimatedTime} onChange={(e) => setNewWellTime({ ...newWellTime, estimatedTime: e.target.value })} />
+              </div>
+              <div>
+                <Label>Contingency (hrs)</Label>
+                <Input value={newWellTime.contingencyTime} onChange={(e) => setNewWellTime({ ...newWellTime, contingencyTime: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddDialogOpen(false)}>Cancel</Button>
+            <Button
+              className="industry-primary"
+              disabled={!newWellTime.serviceId || !newWellTime.section || createMutation.isPending}
+              onClick={() => createMutation.mutate()}
+            >
+              Create
             </Button>
           </DialogFooter>
         </DialogContent>

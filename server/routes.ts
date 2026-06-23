@@ -1,35 +1,50 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { 
-  insertServiceSchema, 
-  insertTenderSchema, 
+import { requireAuth } from "./auth";
+import {
+  insertServiceSchema,
+  insertTenderSchema,
   insertTenderServiceSchema,
   insertPricingScheduleSchema,
-  insertWellTimeSchema
+  insertPricingScheduleWellClassSchema,
+  insertWellTimeSchema,
+  insertScenarioSchema,
+  TENDER_STATUSES,
 } from "@shared/schema";
 import { z } from "zod";
 
+const completeTenderSchema = z.object({
+  tender: insertTenderSchema,
+  services: z.array(insertTenderServiceSchema.omit({ tenderId: true })),
+});
+
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Services endpoints
+  app.use("/api", (req, res, next) => {
+    if (req.path.startsWith("/auth")) return next();
+    return requireAuth(req, res, next);
+  });
+
   app.get("/api/services", async (req, res) => {
     try {
-      const services = await storage.getServices();
-      res.json(services);
-    } catch (error) {
+      const segment = typeof req.query.segment === "string" ? req.query.segment : undefined;
+      const servicesList = await storage.getServices(segment);
+      res.json(servicesList);
+    } catch {
       res.status(500).json({ error: "Failed to fetch services" });
     }
   });
 
   app.get("/api/services/search", async (req, res) => {
     try {
-      const { q } = req.query;
+      const { q, segment } = req.query;
       if (!q || typeof q !== "string") {
         return res.status(400).json({ error: "Search query is required" });
       }
-      const services = await storage.searchServices(q);
-      res.json(services);
-    } catch (error) {
+      const segmentFilter = typeof segment === "string" ? segment : undefined;
+      const results = await storage.searchServices(q, segmentFilter);
+      res.json(results);
+    } catch {
       res.status(500).json({ error: "Failed to search services" });
     }
   });
@@ -38,11 +53,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       const service = await storage.getServiceWithPricing(id);
-      if (!service) {
-        return res.status(404).json({ error: "Service not found" });
-      }
+      if (!service) return res.status(404).json({ error: "Service not found" });
       res.json(service);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Failed to fetch service" });
     }
   });
@@ -65,9 +78,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const id = parseInt(req.params.id);
       const serviceData = insertServiceSchema.partial().parse(req.body);
       const service = await storage.updateService(id, serviceData);
-      if (!service) {
-        return res.status(404).json({ error: "Service not found" });
-      }
+      if (!service) return res.status(404).json({ error: "Service not found" });
       res.json(service);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -81,22 +92,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       const deleted = await storage.deleteService(id);
-      if (!deleted) {
-        return res.status(404).json({ error: "Service not found" });
-      }
+      if (!deleted) return res.status(404).json({ error: "Service not found" });
       res.json({ success: true });
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Failed to delete service" });
     }
   });
 
-  // Tenders endpoints
-  app.get("/api/tenders", async (req, res) => {
+  app.get("/api/tenders", async (_req, res) => {
     try {
-      const tenders = await storage.getTenders();
-      res.json(tenders);
-    } catch (error) {
+      const tendersList = await storage.getTenders();
+      res.json(tendersList);
+    } catch {
       res.status(500).json({ error: "Failed to fetch tenders" });
+    }
+  });
+
+  app.get("/api/tenders/export", async (_req, res) => {
+    try {
+      const csv = await storage.exportTendersCsv();
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", 'attachment; filename="tenders-export.csv"');
+      res.send(csv);
+    } catch {
+      res.status(500).json({ error: "Failed to export tenders" });
     }
   });
 
@@ -104,12 +123,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       const tender = await storage.getTender(id);
-      if (!tender) {
-        return res.status(404).json({ error: "Tender not found" });
-      }
+      if (!tender) return res.status(404).json({ error: "Tender not found" });
       res.json(tender);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Failed to fetch tender" });
+    }
+  });
+
+  app.get("/api/tenders/:id/summary", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const summary = await storage.getTenderSummary(id);
+      if (!summary) return res.status(404).json({ error: "Tender not found" });
+      res.json(summary);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch tender summary" });
     }
   });
 
@@ -126,14 +154,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/tenders/complete", async (req, res) => {
+    try {
+      const { tender, services: lineItems } = completeTenderSchema.parse(req.body);
+      const created = await storage.createTenderComplete(tender, lineItems);
+      res.status(201).json(created);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid tender data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create tender" });
+    }
+  });
+
   app.put("/api/tenders/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const tenderData = insertTenderSchema.partial().parse(req.body);
       const tender = await storage.updateTender(id, tenderData);
-      if (!tender) {
-        return res.status(404).json({ error: "Tender not found" });
-      }
+      if (!tender) return res.status(404).json({ error: "Tender not found" });
       res.json(tender);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -143,27 +182,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.patch("/api/tenders/:id/status", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status } = z.object({ status: z.enum(TENDER_STATUSES) }).parse(req.body);
+      const tender = await storage.updateTenderStatus(id, status);
+      if (!tender) return res.status(404).json({ error: "Tender not found" });
+      res.json(tender);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid status", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update tender status" });
+    }
+  });
+
   app.delete("/api/tenders/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const deleted = await storage.deleteTender(id);
-      if (!deleted) {
-        return res.status(404).json({ error: "Tender not found" });
-      }
+      if (!deleted) return res.status(404).json({ error: "Tender not found" });
       res.json({ success: true });
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Failed to delete tender" });
     }
   });
 
-  // Tender Services endpoints
   app.post("/api/tenders/:id/services", async (req, res) => {
     try {
       const tenderId = parseInt(req.params.id);
-      const serviceData = insertTenderServiceSchema.parse({
-        ...req.body,
-        tenderId,
-      });
+      const serviceData = insertTenderServiceSchema.parse({ ...req.body, tenderId });
       const tenderService = await storage.addTenderService(serviceData);
       res.status(201).json(tenderService);
     } catch (error) {
@@ -179,40 +227,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tenderId = parseInt(req.params.tenderId);
       const serviceId = parseInt(req.params.serviceId);
       const deleted = await storage.removeTenderService(tenderId, serviceId);
-      if (!deleted) {
-        return res.status(404).json({ error: "Tender service not found" });
-      }
+      if (!deleted) return res.status(404).json({ error: "Tender service not found" });
       res.json({ success: true });
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Failed to remove tender service" });
     }
   });
 
-  // Dashboard endpoints
-  app.get("/api/dashboard/stats", async (req, res) => {
+  app.get("/api/tenders/:id/scenarios", async (req, res) => {
+    try {
+      const tenderId = parseInt(req.params.id);
+      const list = await storage.getScenarios(tenderId);
+      res.json(list);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch scenarios" });
+    }
+  });
+
+  app.post("/api/tenders/:id/scenarios", async (req, res) => {
+    try {
+      const tenderId = parseInt(req.params.id);
+      const scenarioData = insertScenarioSchema.parse({ ...req.body, tenderId });
+      const scenario = await storage.upsertScenario(scenarioData);
+      res.status(201).json(scenario);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid scenario data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to save scenario" });
+    }
+  });
+
+  app.get("/api/dashboard/stats", async (_req, res) => {
     try {
       const stats = await storage.getDashboardStats();
       res.json(stats);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Failed to fetch dashboard stats" });
     }
   });
 
-  // CSV Import endpoint
+  app.get("/api/dashboard/activity", async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 10;
+      const activity = await storage.getRecentActivity(limit);
+      res.json(activity);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch dashboard activity" });
+    }
+  });
+
   app.post("/api/import/services", async (req, res) => {
     try {
-      const { services } = req.body;
-      if (!Array.isArray(services)) {
+      const { services: servicesList } = req.body;
+      if (!Array.isArray(servicesList)) {
         return res.status(400).json({ error: "Services must be an array" });
       }
-      
-      const validServices = services.map(service => insertServiceSchema.parse(service));
-      const createdServices = await storage.bulkCreateServices(validServices);
-      res.status(201).json({ 
-        success: true, 
-        count: createdServices.length,
-        services: createdServices 
-      });
+      const validServices = servicesList.map((service) => insertServiceSchema.parse(service));
+      const result = await storage.bulkCreateServices(validServices);
+      res.status(201).json(result);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid service data", details: error.errors });
@@ -221,12 +294,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Pricing Schedules endpoints
-  app.get("/api/pricing-schedules", async (req, res) => {
+  app.get("/api/pricing-schedules", async (_req, res) => {
     try {
       const schedules = await storage.getPricingSchedules();
       res.json(schedules);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Failed to fetch pricing schedules" });
     }
   });
@@ -249,9 +321,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const id = parseInt(req.params.id);
       const scheduleData = insertPricingScheduleSchema.partial().parse(req.body);
       const schedule = await storage.updatePricingSchedule(id, scheduleData);
-      if (!schedule) {
-        return res.status(404).json({ error: "Pricing schedule not found" });
-      }
+      if (!schedule) return res.status(404).json({ error: "Pricing schedule not found" });
       res.json(schedule);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -265,21 +335,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       const deleted = await storage.deletePricingSchedule(id);
-      if (!deleted) {
-        return res.status(404).json({ error: "Pricing schedule not found" });
-      }
+      if (!deleted) return res.status(404).json({ error: "Pricing schedule not found" });
       res.json({ success: true });
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Failed to delete pricing schedule" });
     }
   });
 
-  // Well Times endpoints
-  app.get("/api/well-times", async (req, res) => {
+  app.get("/api/pricing-matrix", async (req, res) => {
+    try {
+      const serviceIdsParam = typeof req.query.serviceIds === "string" ? req.query.serviceIds : undefined;
+      const serviceIds = serviceIdsParam
+        ? serviceIdsParam.split(",").map((s) => parseInt(s.trim())).filter((n) => !isNaN(n))
+        : undefined;
+      const matrix = await storage.getPricingMatrix(serviceIds);
+      res.json(matrix);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch pricing matrix" });
+    }
+  });
+
+  app.get("/api/pricing-schedule-well-classes", async (req, res) => {
+    try {
+      const scheduleId = req.query.scheduleId ? parseInt(String(req.query.scheduleId)) : undefined;
+      const rows = await storage.getPricingScheduleWellClasses(scheduleId);
+      res.json(rows);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch well class rows" });
+    }
+  });
+
+  app.post("/api/pricing-schedules/:id/well-classes", async (req, res) => {
+    try {
+      const scheduleId = parseInt(req.params.id);
+      const rowData = insertPricingScheduleWellClassSchema.parse({ ...req.body, scheduleId });
+      const row = await storage.createPricingScheduleWellClass(rowData);
+      res.status(201).json(row);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid well class data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create well class row" });
+    }
+  });
+
+  app.put("/api/pricing-schedule-well-classes/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const rowData = insertPricingScheduleWellClassSchema.partial().parse(req.body);
+      const row = await storage.updatePricingScheduleWellClass(id, rowData);
+      if (!row) return res.status(404).json({ error: "Well class row not found" });
+      res.json(row);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid well class data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update well class row" });
+    }
+  });
+
+  app.delete("/api/pricing-schedule-well-classes/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deleted = await storage.deletePricingScheduleWellClass(id);
+      if (!deleted) return res.status(404).json({ error: "Well class row not found" });
+      res.json({ success: true });
+    } catch {
+      res.status(500).json({ error: "Failed to delete well class row" });
+    }
+  });
+
+  app.get("/api/well-times", async (_req, res) => {
     try {
       const times = await storage.getWellTimes();
       res.json(times);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Failed to fetch well times" });
     }
   });
@@ -302,9 +432,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const id = parseInt(req.params.id);
       const timeData = insertWellTimeSchema.partial().parse(req.body);
       const time = await storage.updateWellTime(id, timeData);
-      if (!time) {
-        return res.status(404).json({ error: "Well time not found" });
-      }
+      if (!time) return res.status(404).json({ error: "Well time not found" });
       res.json(time);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -318,30 +446,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       const deleted = await storage.deleteWellTime(id);
-      if (!deleted) {
-        return res.status(404).json({ error: "Well time not found" });
-      }
+      if (!deleted) return res.status(404).json({ error: "Well time not found" });
       res.json({ success: true });
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: "Failed to delete well time" });
     }
   });
 
-  // Bulk Import Pricing Schedules endpoint
   app.post("/api/import/pricing-schedules", async (req, res) => {
     try {
       const { schedules } = req.body;
       if (!Array.isArray(schedules)) {
         return res.status(400).json({ error: "Schedules must be an array" });
       }
-      
-      const validSchedules = schedules.map(s => insertPricingScheduleSchema.parse(s));
-      const createdSchedules = await storage.bulkCreatePricingSchedules(validSchedules);
-      res.status(201).json({ 
-        success: true, 
-        count: createdSchedules.length,
-        schedules: createdSchedules 
-      });
+      const validSchedules = schedules.map((s) => insertPricingScheduleSchema.parse(s));
+      const result = await storage.bulkCreatePricingSchedules(validSchedules);
+      res.status(201).json(result);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid pricing schedule data", details: error.errors });
@@ -350,21 +470,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Bulk Import Well Times endpoint
   app.post("/api/import/well-times", async (req, res) => {
     try {
-      const { wellTimes } = req.body;
-      if (!Array.isArray(wellTimes)) {
+      const { wellTimes: wellTimesList } = req.body;
+      if (!Array.isArray(wellTimesList)) {
         return res.status(400).json({ error: "Well times must be an array" });
       }
-      
-      const validWellTimes = wellTimes.map(w => insertWellTimeSchema.parse(w));
-      const createdWellTimes = await storage.bulkCreateWellTimes(validWellTimes);
-      res.status(201).json({ 
-        success: true, 
-        count: createdWellTimes.length,
-        wellTimes: createdWellTimes 
-      });
+      const validWellTimes = wellTimesList.map((w) => insertWellTimeSchema.parse(w));
+      const result = await storage.bulkCreateWellTimes(validWellTimes);
+      res.status(201).json(result);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid well time data", details: error.errors });
